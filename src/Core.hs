@@ -6,13 +6,14 @@
 
 module Core
     ( CoreExpr(..)
+    , CoreExprF(..)
     , CoreBind(..)
     , CoreProgram
     , Id(..)
     , Literal(..)
     ) where
 
-import Data.Functor.Foldable (Recursive(..))
+import Data.Functor.Foldable (Base, Recursive(..))
 import Data.Functor.Foldable.TH (makeBaseFunctor)
 import Data.List (intercalate)
 
@@ -47,6 +48,7 @@ makeBaseFunctor ''CoreExpr
 instance Show CoreExpr where
     show = cata alg
       where
+        alg :: Base CoreExpr String -> String
         alg (VarF s) = show s
         alg (LitF i) = show i
         -- recursive cases

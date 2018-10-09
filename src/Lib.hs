@@ -52,52 +52,7 @@ import LLVM.Pretty (ppllvm)
 import LLVM.Target (withHostTargetMachine)
 import System.Process (callCommand)
 
--- This represents a top level lambda
-data Defn =
-    Defn String
-         [String]
-         Expr
-    deriving (Eq)
-
-instance Show Defn where
-    show (Defn name vs e) =
-        let params = intercalate "," vs
-        in "let " ++ name ++ " = (\\" ++ params ++ " -> " ++ show e ++ ")"
-
--- difference is (\\) but removes all occurrences not just the first
-difference :: Eq a => [a] -> [a] -> [a]
-difference as bs = filter f as
-  where
-    f a = a `notElem` bs
-
--- This returns a list of variables that are referencing parent variables
-freeVars :: Expr -> [String]
-freeVars = cata alg
-  where
-    alg :: Base Expr [String] -> [String]
-  -- base cases, non recursive constructors
-    alg (VarF s) = [s]
-    alg (PrimF _) = []
-    alg (LitF _) = []
-  -- recursive cases
-  -- app holds 2 lists
-    alg (AppF l r) = l ++ r
-  -- lam holds some vars and a list
-    alg (LamF vs acc) = acc `difference` vs
-
 -- This takes a lambda and converts it to a lambda that has no references to parent scoped
--- variables (eg. \x \y + x y => (\x (\x y + x y) x))
-close :: Expr -> Expr
-close = cata alg
-  where
-    alg :: Base Expr Expr -> Expr
-    alg (LamF vs b) =
-        let env = freeVars b `difference` vs
-        in Lam (env ++ vs) b `apply` env
-    alg x = embed x
-
--- Take a (Lam vs body) and a list of vs
--- and convert it into a call site
 apply :: Expr -> [String] -> Expr
 apply e (v:vs) = apply (App e $ Var v) vs
 apply e [] = e
