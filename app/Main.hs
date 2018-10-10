@@ -12,4 +12,4 @@ plusClosure =
 main :: IO ()
 main = do
     print plusClosure
-    print (convertIntoClosures [Id "+"] plusClosure)
+    print (convertExprIntoProgram plusClosure)

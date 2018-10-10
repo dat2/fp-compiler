@@ -10,7 +10,6 @@ someFunc = putStrLn "someFunc"
 # LANGUAGE FlexibleContexts #
 # LANGUAGE DeriveFunctor #
 # LANGUAGE TypeFamilies #
-# LANGUAGE ScopedTypeVariables #
 
 module Lib
     ( Expr(..)
@@ -18,10 +17,7 @@ module Lib
     , compile
     ) where
 
-import Control.Monad.State.Lazy
-       (MonadState, evalStateT, get, modify, put)
-import Control.Monad.Writer.Lazy (MonadWriter, runWriter, tell)
-import Data.ByteString.Short (ShortByteString(..))
+mport Data.ByteString.Short (ShortByteString(..))
 import Data.Functor.Foldable
        (Base(..), Corecursive(..), Recursive(..))
 import Data.List ((\\), findIndex, intercalate)
@@ -51,51 +47,6 @@ import LLVM.Module (File(..), withModuleFromAST, writeObjectToFile)
 import LLVM.Pretty (ppllvm)
 import LLVM.Target (withHostTargetMachine)
 import System.Process (callCommand)
-
--- This takes a lambda and converts it to a lambda that has no references to parent scoped
-apply :: Expr -> [String] -> Expr
-apply e (v:vs) = apply (App e $ Var v) vs
-apply e [] = e
-
--- This will generate a fresh name for a definition
-genName :: MonadState Int m => m String
-genName = do
-    s <- get
-    put (s + 1)
-    return $ show s
-
--- This will take all lambdas, and generate a list of definitions for each lambda
-liftLambdas ::
-       forall m. (MonadWriter [Defn] m, MonadState Int m)
-    => Expr
-    -> m Expr
-liftLambdas = cata alg
-  where
-    alg :: Base Expr (m Expr) -> m Expr
-  -- base cases
-    alg (VarF s) = return $ Var s
-    alg (PrimF op) = return $ Prim op
-    alg (LitF i) = return $ Lit i
-  -- recursive cases
-    alg (AppF ml mr) = do
-        l <- ml
-        r <- mr
-        return $ App l r
-    alg (LamF vs me) = do
-        name <- genName
-        e <- me
-        tell [Defn name vs e]
-        return $ Var name
-
--- lift inner defined lambdas and closures into upper level definitions
-eliminateLambdas :: Expr -> (Expr, [Defn])
-eliminateLambdas e = runWriter $ evalStateT (liftLambdas (close e)) 0
-
-smash :: Expr -> Expr
-smash = cata alg
-  where
-    alg (LamF vs (Lam vs' e)) = Lam (vs ++ vs') e
-    alg x = embed x
 
 type GlobalState = Map.Map String Operand
 

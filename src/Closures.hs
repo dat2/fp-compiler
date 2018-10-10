@@ -1,10 +1,15 @@
 -- | This module is about converting a naive CoreExpr into a CoreProgram with closures
 -- lifted out.
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+
 module Closures
-    ( convertIntoClosures
-    , freeVars
+    ( convertExprIntoProgram
     ) where
 
+import Control.Monad.State.Lazy
+       (MonadState, evalStateT, get, modify, put)
+import Control.Monad.Writer.Lazy (MonadWriter, runWriter, tell)
 import Core
 import Data.Functor.Foldable (Base, cata, embed)
 import Data.List (delete)
@@ -46,3 +51,44 @@ convertIntoClosures globals = cata alg
         let env = freeVars b `without` (globals ++ [v])
         in wrapLambdas env (Lam v b) `apply` env
     alg x = embed x
+
+-- | This will lift expressions into a list of bindings
+liftLambdasIntoBindings ::
+       forall m. (MonadWriter [CoreBind] m, MonadState Int m)
+    => CoreExpr
+    -> m CoreExpr
+liftLambdasIntoBindings = cata alg
+  where
+    alg :: Base CoreExpr (m CoreExpr) -> m CoreExpr
+  -- base cases
+    alg (VarF s) = return $ Var s
+    alg (LitF i) = return $ Lit i
+  -- recursive cases
+    alg (AppF ml mr) = do
+        l <- ml
+        r <- mr
+        return $ App l r
+    alg (LamF v me) = do
+        name <- genName
+        e <- me
+        tell [CoreBind name (Lam v e)]
+        return $ Var name
+
+-- This will generate a fresh name for a definition
+genName :: MonadState Int m => m Id
+genName = do
+    s <- get
+    put (s + 1)
+    return $ Id $ "_" ++ show s
+
+-- This will take all lambdas, and generate a list of definitions for each lambda
+-- lift inner defined lambdas and closures into upper level definitions
+convertExprIntoProgram :: CoreExpr -> CoreProgram
+convertExprIntoProgram e =
+    let globals = map Id ["+", "-", "/", "*"]
+        (main, bindings) =
+            runWriter $
+            evalStateT
+                (liftLambdasIntoBindings (convertIntoClosures globals e))
+                0
+    in (CoreBind (Id "main") main) : bindings
