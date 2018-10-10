@@ -11,5 +11,7 @@ plusClosure =
 
 main :: IO ()
 main = do
-    print plusClosure
-    print (convertExprIntoProgram plusClosure)
+    mapM_
+        print
+        (liftClosures
+             [(CoreBind (Id "plus") plusClosure), (CoreBind (Id "plus1") plus1)])

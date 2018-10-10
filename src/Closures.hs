@@ -4,7 +4,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module Closures
-    ( convertExprIntoProgram
+    ( liftClosures
     ) where
 
 import Control.Monad.State.Lazy
@@ -60,10 +60,8 @@ liftLambdasIntoBindings ::
 liftLambdasIntoBindings = cata alg
   where
     alg :: Base CoreExpr (m CoreExpr) -> m CoreExpr
-  -- base cases
     alg (VarF s) = return $ Var s
     alg (LitF i) = return $ Lit i
-  -- recursive cases
     alg (AppF ml mr) = do
         l <- ml
         r <- mr
@@ -74,6 +72,8 @@ liftLambdasIntoBindings = cata alg
         tell [CoreBind name (Lam v e)]
         return $ Var name
 
+-- base cases
+-- recursive cases
 -- This will generate a fresh name for a definition
 genName :: MonadState Int m => m Id
 genName = do
@@ -83,12 +83,12 @@ genName = do
 
 -- This will take all lambdas, and generate a list of definitions for each lambda
 -- lift inner defined lambdas and closures into upper level definitions
-convertExprIntoProgram :: CoreExpr -> CoreProgram
-convertExprIntoProgram e =
+liftClosures :: CoreProgram -> CoreProgram
+liftClosures bindings =
     let globals = map Id ["+", "-", "/", "*"]
-        (main, bindings) =
-            runWriter $
-            evalStateT
-                (liftLambdasIntoBindings (convertIntoClosures globals e))
-                0
-    in (CoreBind (Id "main") main) : bindings
+        mapBinding (CoreBind name e) =
+            CoreBind name <$>
+            liftLambdasIntoBindings (convertIntoClosures globals e)
+        bindingsM' = mapM mapBinding bindings
+        (bindings', newBindings) = runWriter $ evalStateT bindingsM' 0
+    in bindings' ++ newBindings
