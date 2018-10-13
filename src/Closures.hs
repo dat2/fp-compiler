@@ -2,6 +2,7 @@
 -- lifted out.
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE NamedFieldPuns #-}
 
 module Closures
     ( liftClosures
@@ -13,6 +14,7 @@ import Control.Monad.Writer.Lazy (MonadWriter, runWriter, tell)
 import Core
 import Data.Functor.Foldable (Base, cata, embed)
 import Data.List (delete)
+import Data.Maybe (maybe)
 
 -- without is (\\) but removes all occurrences not just the first
 without :: Eq a => [a] -> [a] -> [a]
@@ -52,9 +54,27 @@ convertIntoClosures globals = cata alg
         in wrapLambdas env (Lam v b) `apply` env
     alg x = embed x
 
+data NameState = NameState
+    { suggestion :: Maybe String
+    , count :: Int
+    }
+
+initNameState :: NameState
+initNameState = NameState {suggestion = Nothing, count = 0}
+
+suggest :: MonadState NameState m => String -> m ()
+suggest s = put $ NameState {suggestion = Just s, count = 0}
+
+-- This will generate a fresh name for a definition
+fresh :: MonadState NameState m => m Id
+fresh = do
+    NameState {suggestion, count} <- get
+    put (NameState {suggestion = suggestion, count = count + 1})
+    return $ Id $ "_" ++ maybe "" (++ "_") suggestion ++ show count
+
 -- | This will lift expressions into a list of bindings
 liftLambdasIntoBindings ::
-       forall m. (MonadWriter [CoreBind] m, MonadState Int m)
+       forall m. (MonadWriter [CoreBind] m, MonadState NameState m)
     => CoreExpr
     -> m CoreExpr
 liftLambdasIntoBindings = cata alg
@@ -67,28 +87,21 @@ liftLambdasIntoBindings = cata alg
         r <- mr
         return $ App l r
     alg (LamF v me) = do
-        name <- genName
+        name <- fresh
         e <- me
         tell [CoreBind name (Lam v e)]
         return $ Var name
-
--- base cases
--- recursive cases
--- This will generate a fresh name for a definition
-genName :: MonadState Int m => m Id
-genName = do
-    s <- get
-    put (s + 1)
-    return $ Id $ "_" ++ show s
 
 -- This will take all lambdas, and generate a list of definitions for each lambda
 -- lift inner defined lambdas and closures into upper level definitions
 liftClosures :: CoreProgram -> CoreProgram
 liftClosures bindings =
     let globals = map Id ["+", "-", "/", "*"]
-        mapBinding (CoreBind name e) =
-            CoreBind name <$>
-            liftLambdasIntoBindings (convertIntoClosures globals e)
+        mapBinding (CoreBind (Id n) e) =
+            CoreBind (Id n) <$>
+            (suggest n >>
+             liftLambdasIntoBindings (convertIntoClosures globals e))
         bindingsM' = mapM mapBinding bindings
-        (bindings', newBindings) = runWriter $ evalStateT bindingsM' 0
+        (bindings', newBindings) =
+            runWriter $ evalStateT bindingsM' initNameState
     in bindings' ++ newBindings
